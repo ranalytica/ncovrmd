@@ -1,0 +1,828 @@
+---
+pagetitle: "nCOV19"
+output:
+  html_document:
+    includes:
+       in_header: header.html
+---
+
+  
+  
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+#SETUP
+
+
+rm(list=ls(all=TRUE)) 
+library(ggplot2)
+library(knitr)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(plotly)
+library(DT)
+library(jsonlite)
+library(reshape2)
+library(scales)
+
+# FUNCTIONS
+
+toperson <- function(personnum, colourstr){
+unlucky<-sample(1:personnum, 1, replace=T)
+people<-paste(strrep(paste("<i class=\"fas fa-user\" style=\"color:",colourstr,"\"></i> ", sep=""), unlucky-1),
+      strrep("<i class=\"fas fa-user\"  style=\"color:red\"></i> ",1),
+      strrep(paste("<i class=\"fas fa-user\" style=\"color:",colourstr,"\"></i> ", sep=""), personnum-unlucky),
+      strrep(" ",2+personnum), sep="")
+return(people)
+}
+
+###################################### End of Functions
+
+# Parameters
+
+topcount<-10
+confirmed.cutoff<-30
+coi<-c("China", "Italy", "United Kingdom","Switzerland", "Germany","Norway","South Africa","US","France")
+minimum.pop=5e6
+urlcases<-"https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master"
+casespercapita.origin<-1e-6
+casespercapita.cutoff<-5000000
+
+
+###################################### End of Parameters
+
+# Get data
+ 
+death.wide <- read.csv(paste(urlcases,"/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Deaths.csv",sep=""))
+
+recovered.wide <- read.csv(paste(urlcases,"/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Recovered.csv",sep=""))
+
+confirmed.wide <- read.csv(paste(urlcases,"/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv", sep=""))
+
+# Get population data from the World Bank API
+url <- 'http://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL?date=2018&format=json&per_page=300'
+
+# read url and convert to data.frame
+population.doc <- fromJSON(txt=url)
+
+country2continent <- read.csv(
+  "https://spendiff.com/countryContinent.csv")
+
+####################################################### End of getting data
+
+
+# Tidy and rearrange data
+
+# Turn date column titles into something I can work with Currently XM.DD.YY
+# Convert to DD.MM.YY
+
+names(death.wide)[4:length(names(death.wide))]<-str_replace(names(death.wide[4:length(names(death.wide))]), "X(\\d\\d?)+.(\\d\\d?).(\\d\\d)", "\\2.\\1.\\3")
+names(recovered.wide)[4:length(names(recovered.wide))]<-str_replace(names(recovered.wide[4:length(names(recovered.wide))]), "X(\\d\\d?)+.(\\d\\d?).(\\d\\d)", "\\2.\\1.\\3")
+names(confirmed.wide)[4:length(names(confirmed.wide))]<-str_replace(names(confirmed.wide[4:length(names(confirmed.wide))]), "X(\\d\\d?)+.(\\d\\d?).(\\d\\d)", "\\2.\\1.\\3")
+
+# Now melt them
+
+death.long <- melt(death.wide, id=c("Province.State","Country.Region","Lat","Long" ))
+names(death.long)[5]<-"Date"
+names(death.long)[6]<-"number.death"
+recovered.long <- melt(recovered.wide, id=c("Province.State","Country.Region","Lat","Long" ))
+names(recovered.long)[5]<-"Date"
+names(recovered.long)[6]<-"number.recovered"
+confirmed.long <- melt(confirmed.wide, id=c("Province.State","Country.Region","Lat","Long" ))
+names(confirmed.long)[5]<-"Date"
+names(confirmed.long)[6]<-"number.confirmed"
+
+population.data<-as.data.frame(population.doc[[2]])
+names(population.data)[3]<-"code_3"
+population.data<-merge(population.data,country2continent, by=c("code_3"))
+
+population<-as.data.frame(cbind("Country.Region"=population.data$country.x$value,"population"=population.data$value,"year"=population.data$date,"continent"=as.character(population.data$continent)),stringsAsFactors = FALSE)
+
+
+################################################## Repair errors
+taiwan<-c("Taiwan*","32780000","2018","Asia")
+population<-rbind (population, taiwan) 
+
+########## March 12th issues REMOVE AFTER FIXED AT SOURCE (REMOVED!)
+#
+#Italy
+#Confirmed: 15113
+#Deaths: 1016
+#Recovered: 1258
+death.long$number.death[death.long$Country.Region==("Italy") & death.long$Date==("12.3.20")] <-1016
+confirmed.long$number.confirmed[confirmed.long$Country.Region==("Italy") & confirmed.long$Date==("12.3.20")] <-15113
+#recovered.long$number.recovered[recovered.long$Country.Region==("Italy") & recovered.long$Date==("12.3.20")]<-1258
+
+#UK
+confirmed.long$number.confirmed[confirmed.long$Country.Region==("United Kingdom") & confirmed.long$Province.State==("United Kingdom")  & confirmed.long$Date==("12.3.20")] <-561
+#recovered.long$number.recovered[recovered.long$Country.Region==("Italy") & recovered.long$Date==("12.3.20")]<-1258
+
+#Switzerland
+death.long$number.death[death.long$Country.Region==("Switzerland") & death.long$Date==("12.3.20")] <-7
+confirmed.long$number.confirmed[confirmed.long$Country.Region==("Switzerland") & confirmed.long$Date==("12.3.20")] <-868
+#recovered.long$number.recovered[recovered.long$Country.Region==("Italy") & recovered.long$Date==("12.3.20")]<-1258
+
+#Norway
+death.long$number.death[death.long$Country.Region==("Norway") & death.long$Date==("12.3.20")] <-1
+#confirmed.long$number.confirmed[confirmed.long$Country.Region==("Norway") & confirmed.long$Date==("12.3.20")] <-817
+
+#France
+death.long$number.death[death.long$Country.Region==("France") & death.long$Date==("12.3.20")][1] <-61
+confirmed.long$number.confirmed[confirmed.long$Country.Region==("France") & confirmed.long$Date==("12.3.20")][1] <-2876
+#recovered.long$number.recovered[recovered.long$Country.Region==("Italy") & recovered.long$Date==("12.3.20")]<-1258
+
+#Germany
+death.long$number.death[death.long$Country.Region==("Germany") & death.long$Date==("12.3.20")][1] <-6
+confirmed.long$number.confirmed[confirmed.long$Country.Region==("Germany") & confirmed.long$Date==("12.3.20")][1] <-2750
+#recovered.long$number.recovered[recovered.long$Country.Region==("Italy") & recovered.long$Date==("12.3.20")]<-1258
+
+#Iran
+death.long$number.death[death.long$Country.Region==("Iran") & death.long$Date==("12.3.20")][1] <-429
+confirmed.long$number.confirmed[confirmed.long$Country.Region==("Iran") & confirmed.long$Date==("12.3.20")][1] <-10075
+#recovered.long$number.recovered[recovered.long$Country.Region==("Italy") & recovered.long$Date==("12.3.20")]<-1258
+
+#############################
+
+
+# Get counts befor the merges so that disappearing countries will not deplete totals
+
+df <-merge(death.long, confirmed.long, by=c("Lat","Long","Date","Country.Region","Province.State"))
+df <-merge(df, recovered.long, by=c("Lat","Long","Date","Country.Region","Province.State"))
+df$Date<-dmy(df$Date)
+
+################ Where multiple regions for the same country are listed on a date, sum and summarise 
+
+df<- df %>%
+   group_by(Country.Region, Date) %>%
+   summarise(number.confirmed=sum(number.confirmed),number.death=sum(number.death),number.recovered=sum(number.recovered))
+
+###################################################################### End of region merge
+
+growth<-df
+
+growth<-growth %>%
+       group_by(Date)%>%
+       summarise("confirmed"=sum(number.confirmed),"death"=sum(number.death),"recovered" = sum(number.recovered)) %>%
+       mutate("newconfirmed"=confirmed-lag(confirmed),"newdeath"=death-lag(death),"newrecovered"=recovered-lag(recovered)) %>%
+       ungroup()
+
+growth.by.country<-df %>%
+       group_by(Date,Country.Region) %>%
+       summarise("confirmed"=sum(number.confirmed),"death"=sum(number.death),"recovered" = sum(number.recovered)) %>%
+       ungroup()
+
+growth.by.country<-growth.by.country %>%
+       group_by(Country.Region) %>%
+       mutate("newconfirmed"=confirmed-lag(confirmed),"newdeath"=death-lag(death),"newrecovered"=recovered-lag(recovered),"active"=confirmed-death-recovered)%>%
+       ungroup()
+
+###################################################################### End of get counts
+
+
+# Fix of Some countrynames for alignment between data sets
+
+population$Country.Region[population$Country.Region=="Korea, Rep."]<-"Korea, South"
+population$Country.Region[population$Country.Region=="United States"]<-"US"
+#population$Country.Region[population$Country.Region=="United Kingdom"]<-"UK"
+population$Country.Region[population$Country.Region=="Iran, Islamic Rep."]<-"Iran"
+#population$Country.Region[population$Country.Region=="Hong Kong SAR, China"]<-"Hong Kong SAR"
+population$Country.Region[population$Country.Region=="Viet Nam"]<-"Vietnam"
+population$Country.Region[population$Country.Region=="Slovak Republic"]<-"Slovakia"
+population$Country.Region[population$Country.Region=="Russian Federation"]<-"Russia"
+population$Country.Region[population$Country.Region=="Egypt, Arab Rep."]<-"Egypt"
+population$Country.Region[population$Country.Region=="Czech Republic"]<-"Czechia"
+# unique(df$Country.Region[!((df$Country.Region) %in% population$Country.Region)]) # Countries and data get lost in the population merge. Fix this
+
+
+# Merge death recovered and confirmed
+df.pre.pop.merge<-df
+df<- merge(df, population, by=c("Country.Region"))
+
+
+
+
+df$Country.Region<-as.character(df$Country.Region)
+df$population<-as.integer(df$population)
+
+df$number.death.per.capita<-df$number.death/df$population
+df$number.recovered.per.capita<-df$number.recovered/df$population
+df$number.confirmed.per.capita<-df$number.confirmed/df$population
+
+# Add a days of data column
+
+mindate<-min(df$Date)
+maxdate<-max(df$Date)
+df<-df %>% 
+    group_by(Date) %>%
+    mutate("days.of.data"=difftime(Date, mindate,unit="days")) %>%
+    ungroup()
+
+df$continent<-as.factor(df$continent)
+
+# For normalised plots
+
+onsetday<-subset(df,population>casespercapita.cutoff) %>% 
+     group_by(Country.Region) %>%
+     mutate("day.of.onset"= if_else(number.confirmed.per.capita>casespercapita.origin,1,0)) %>%
+     filter(number.confirmed>0) %>%
+     ungroup()
+
+onsetday<-onsetday %>% 
+     group_by(Country.Region) %>%
+     arrange(Date) %>%
+     mutate("day.since.onset"= cumsum(day.of.onset)) %>%
+     filter(number.confirmed>0) %>%
+     ungroup()
+
+onsetday<- merge(onsetday, population, by=c("Country.Region"))
+
+####################################################################### End of onset data
+
+df.today<-df %>%
+       group_by(Country.Region) %>%
+       summarise(total.death=max(number.death),
+                 percent.mortality=format(100*max(number.death)/max(number.confirmed),digits=3),
+                 total.recovered=max(number.recovered),
+                 total.confirmed=max(number.confirmed),
+                 death.per.capita=as.numeric(format(max(number.death/population),digits=3)),
+                 recovered.per.capita=as.numeric(format(max(number.recovered/population),digits=3)),
+                 confirmed.per.capita=as.numeric(format(max(number.confirmed/population),digits=3)),
+                 cases.per.capita=format((max(number.confirmed)-max(number.recovered)-max(number.death))/unique(population),digits=3),
+                 population= unique(population),
+                 continent=unique(continent))
+
+   
+df.today.above.cutoff <- df.today %>% filter(total.confirmed>confirmed.cutoff)
+
+continental<-df %>%
+             group_by(continent,Date) %>%
+             summarise(number.confirmed=max(number.confirmed),
+                       number.death=max(number.death),
+                       number.recovered=max(number.recovered),
+                       population=max(population)
+                       ) 
+
+
+
+df.table<-df.today
+
+df.table$active.cases<-df.table$total.confirmed-df.table$total.death-df.table$total.recovered
+
+df.table<-df.table[,c(1,12,5,4,2,3,10,6,7,8,9,11)]
+df.table <-df.table[ -c(8:12) ]
+
+df.table$population<-prettyNum(df.table$population, big.mark=",")
+df.table$total.confirmed<-prettyNum(df.table$total.confirmed, big.mark=",")
+df.table$total.death<-prettyNum(df.table$total.death, big.mark=",")
+df.table$total.recovered<-prettyNum(df.table$total.recovered, big.mark=",")
+df.table$percent.mortality<-percent(as.numeric(df.table$percent.mortality)/100, accuracy=0.1, suffix="%")
+df.table$population<-prettyNum(df.table$population, big.mark=",")
+df.table$active.cases<-prettyNum(df.table$active.cases, big.mark=",")
+
+
+df.today.above.cutoff$total.recovered.per.case<-df.today.above.cutoff$total.recovered/df.today.above.cutoff$total.confirmed
+df.today.above.cutoff$total.death.per.case<-df.today.above.cutoff$total.death/df.today.above.cutoff$total.confirmed
+
+names(df.table)[1]<-"<i class=\"fas fa-globe-americas \"></i>"
+names(df.table)[5]<-"<i class=\"fas fa-book-dead \" title=\"Total nCoV19 fatalities\"> </i> Deaths"
+names(df.table)[6]<-"<i class=\"fas fa-book-dead \" title=\"Percent of identified nCoV19 cases that prove fatal\">&nbsp</i><i class=\"fas fa-percent\"></i>"
+names(df.table)[4]<-"Recovered"
+names(df.table)[3]<-"<i class=\"fas fa-procedures \" title=\"Total confirmed nCoV19 cases\" > </i> Total"
+names(df.table)[2]<-"<i class=\"fas fa-procedures  \" title=\"Currently active nCoV19 cases\"> </i> Active "
+names(df.table)[7]<-"<i class=\"fas fa-male\" title=\"Population of country\">  </i> Population"
+
+# Get a list of highload countrie
+
+highload  <- subset(df.today.above.cutoff,population>minimum.pop) %>%
+              arrange(-confirmed.per.capita) 
+
+highload<- head(highload$Country.Region,topcount)
+
+
+######################################################### End of tidy                                                            
+
+
+################################# End of setup
+```
+
+
+```{r setup, include=FALSE, echo=FALSE}
+# Technical stuff for webpage
+# Create header.html
+CON <- file("header.html")
+writeLines('<!-- Global site tag (gtag.js) - Google Analytics -->\n <script async src="https://www.googletagmanager.com/gtag/js?id=XXXXXXX"></script> \n <script> window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments);}gtag(\'js\', new Date()); gtag(\'config\', \'UA-157579559-2\');</script> <script src="https://kit.fontawesome.com/5961dcc1a3.js" crossorigin="anonymous"></script> <link href="https://fonts.googleapis.com/css?family=Exo+2:300&display=swap" rel="stylesheet"> <style> body {font-family: \'Exo 2\', sans-serif;font-size: 18px;}</style>', CON)
+close(CON)
+```
+<br>
+<div style="text-align: right"> <a href="https://spendiff.com/"><i class="fas fa-home" color="lightgrey"></i>
+</a> </div>
+***
+
+# Global nCoV19 Data 
+Last Updated: `r format(Sys.time(), format='%H:%M, %B %d, %Y (%Z)')` 
+
+***
+
+# Cases: <span style="color:steelblue">`r prettyNum(growth$confirmed[growth$Date==maxdate], big.mark=",", scientific=F)`</span>
+
+# Deaths: <span style="color:red">`r prettyNum(growth$death[growth$Date==maxdate], big.mark=",", scientific=F)`</span>
+
+# Recovered: <span style="color:darkgreen"> `r prettyNum(growth$recovered[growth$Date==maxdate], big.mark=",", scientific=F)`</span>
+
+## <span style="color:steelblue">`r format(100*growth$death[growth$Date==maxdate]/growth$confirmed[growth$Date==maxdate],digits=2)`%</span> of all (confirmed) cases end in death [^1]
+</center>
+<br>
+
+<center>
+ 1 in `r round(1/(growth$death[growth$Date==maxdate]/growth$confirmed[growth$Date==maxdate]))` cases: `r toperson(round(1/(growth$death[growth$Date==maxdate]/growth$confirmed[growth$Date==maxdate])),"steelblue")` 
+</center>
+<br>
+New Yesterday - Cases: <span style="color:steelblue">`r prettyNum(growth$newconfirmed[growth$Date==maxdate], big.mark=",", scientific=F)`</span>, Deaths: <span style="color:red">`r prettyNum(growth$newdeath[growth$Date==maxdate], big.mark=",", scientific=F)`</span>, Recovered: <span style="color:darkgreen"> `r prettyNum(growth$newrecovered[growth$Date==maxdate], big.mark=",", scientific=F)`</span> 
+
+***
+
+[^1]: For multiple reasons, the number of deaths divided by the number of cases is not the mortality rate of nCoV19. It is the percentage of individuals identified to have nCoV19 who die (or are dead). 
+
+
+# Hot Spots
+
+
+The 10 countries with the greatest number of **active cases** as of today (`r format(Sys.Date(), format='%B %d, %Y')`) are shown in the table below.
+Data for all countries with active and historic cases are also accessible using the search box above the table.
+
+<br><br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=14,fig.height=8 }
+
+datatable(df.table ,
+          options = list( order = list(list(1,'desc')),                                  
+                          columnDefs = list(list(className = 'dt-right', targets = 2:6) 
+                                            )
+                        ),
+          rownames = FALSE, 
+          escape=F,
+          autoHideNavigation =T)
+```
+<br>
+
+# Propagation of Cases Geographically
+ 
+Log-log Scatterplot (Räppli plot) of death per capita (aka per person) vs confirmed cases per capita for all countries currently with more than `r confirmed.cutoff` confirmed cases on `r format(Sys.Date(), format='%B %d, %Y')`. Colour and shape of the points indicate the continent. Size of the points gives a measure of the country population. Dotted lines indicate the boundaries for the percentages of cases that prove fatal (0.1%,1%,10% and 100%). 
+
+
+              
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=9,fig.height=7 }
+days.data<-max(df$days.of.data)
+# 
+# #Make sure that all countries in the last frame are also in the first frame
+# 
+
+df.firstframe<- df %>% 
+               group_by(continent) %>%
+               arrange(Date) %>% 
+               filter(row_number()==n())
+
+df.firstframe$Country.Region<-""
+df.firstframe$days.of.data<-0
+df.firstframe$number.confirmed<-0
+df.firstframe$population<-0
+
+df.scatter<-subset(df, (number.death>0) & (days.of.data>0))
+
+df.scatter<-bind_rows(df.firstframe,df.scatter)
+
+gg <- ggplot(df.scatter) +
+  geom_abline(aes(slope=1, intercept=0),colour="lightgrey",alpha=.8,linetype = "dashed") + 
+  geom_abline(aes(slope=1, intercept=1),colour="lightgrey",alpha=.8,linetype = "dashed") + 
+  geom_abline(aes(slope=1, intercept=2),colour="lightgrey",alpha=.8,linetype = "dashed") + 
+  geom_abline(aes(slope=1, intercept=3),colour="lightgrey",alpha=.8,linetype = "dashed") + 
+  geom_point(aes(number.death/population, 
+                 number.confirmed/population,
+                 color = continent,
+                 size = population, 
+                 shape = continent,
+                 frame = days.of.data+1,
+                 text=sprintf("Country: %s<br>Date: %s<br>Cases: %s <br>Deaths: %s<br>Death/Case: %s percent", Country.Region ,Date , number.confirmed, number.death,format(100*number.death/number.confirmed, digits=2)),
+                 ids = Country.Region),
+             alpha=.7) +
+  scale_x_log10("Deaths per capita")  +
+  scale_y_log10("Cases per capita")  +
+  scale_size("")+
+  scale_color_discrete("")+    
+  scale_shape("")+  
+  ggtitle("How we got to this: Confirmed cases and deaths per capita") +
+  theme_light()
+gg<-gg + annotate("text", x = .5e-8, y = .7e-5,colour="grey",label = "0.1%")
+gg<-gg + annotate("text", x = .5e-8, y = .7e-6,colour="grey", label = "1%")
+gg<-gg + annotate("text", x = .5e-8, y = .7e-7,colour="grey", label = "10%")
+gg<-gg + annotate("text", x = .5e-8, y = .7e-8,colour="grey", label = "100%")
+
+fig<- ggplotly(gg,tooltip="text")
+fig<- fig %>% config(displayModeBar = FALSE)
+
+
+
+fig <- fig %>%
+  animation_slider(
+    currentvalue = list(prefix = "Days of Data ", font = list(color="red"))
+  )
+
+fig
+
+
+```
+
+<br>
+
+***
+
+# Comparison of Spread
+
+Take all of the countries with a population over `r prettyNum(casespercapita.cutoff, big.mark=",", scientific=F)` and look at cases relative to the first day where **confirmed** cases appear - 'onset' day. We examine how easily it continues to spread. Variations in detection efficiency mean that comparison of performance comes with caveats.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+
+gg<-ggplot(onsetday)+
+  geom_line(aes(day.since.onset,
+                number.confirmed.per.capita,group=Country.Region,
+                linetype=continent.y,
+                colour=continent.y,
+                text=sprintf("Country: %s<br>Date: %s<br>Cases: %s <br>Deaths: %s<br>Death/Case: %s percent", Country.Region ,Date , number.confirmed, number.death,format(100*number.death/number.confirmed, digits=2))))+
+  scale_colour_discrete("")+
+  scale_linetype_discrete("")+
+  scale_y_continuous("cases per capita")+
+  scale_x_continuous("Days since \'onset\'")+
+  theme_light()
+
+fig<-ggplotly(gg,tooltip="text")
+fig<- fig %>% config(displayModeBar = FALSE)
+#fig <- fig %>% layout(showlegend = FALSE)
+fig
+
+```
+
+Disregarding the China data and looking at the increase in confirmed cases in all other countries.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+
+gg<-ggplot(subset(onsetday, Country.Region!="China"))+
+  geom_line(aes(day.since.onset,
+                number.confirmed - min(number.confirmed),group=Country.Region,
+                linetype=continent.y,
+                colour=continent.y,
+                text=sprintf("Country: %s<br>Date: %s<br>Cases: %s <br>Deaths: %s<br>Death/Case: %s percent", Country.Region ,Date , number.confirmed, number.death,format(100*number.death/number.confirmed, digits=2))))+
+  scale_colour_discrete("")+
+  scale_linetype_discrete("")+
+  scale_y_continuous("cases")+
+  scale_x_continuous("Days since \'onset\'")+
+  theme_light()
+
+fig<-ggplotly(gg,tooltip="text")
+fig<- fig %>% config(displayModeBar = FALSE)
+#fig <- fig %>% layout(showlegend = FALSE)
+fig
+
+```
+
+Disregarding the China data and looking at the nCoV19 deaths in all other countries.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+
+gg<-ggplot(subset(onsetday, Country.Region!="China"))+
+  geom_line(aes(day.since.onset,
+                number.death - min(number.death),group=Country.Region,
+                linetype=continent.y,
+                colour=continent.y,
+                text=sprintf("Country: %s<br>Date: %s<br>Cases: %s <br>Deaths: %s<br>Death/Case: %s percent", Country.Region ,Date , number.confirmed, number.death,format(100*number.death/number.confirmed, digits=2))))+
+  scale_colour_discrete("")+
+  scale_linetype_discrete("")+
+  scale_y_continuous("death")+
+  scale_x_continuous("Days since \'onset\'")+
+  theme_light()
+
+fig<-ggplotly(gg,tooltip="text")
+fig<- fig %>% config(displayModeBar = FALSE)
+#fig <- fig %>% layout(showlegend = FALSE)
+fig
+
+```
+
+
+<br>
+
+## Global Cases of nCoV19
+
+If we define Active cases as *Confirmed cases - Confirmed Recovery - Confirmed Death*, we get the plot below.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.5,fig.height=4 }
+
+growth.china.only<-growth.by.country %>% filter(Country.Region=="China")
+
+growth$active<-growth$confirmed-growth$death-growth$recovered
+
+fig <- plot_ly(type = 'scatter', mode = 'lines')
+
+
+fig <- fig %>% add_trace(x = ~growth$Date, 
+               y = ~growth$active, 
+               hoverinfo = "text",
+               fill = 'tozeroy',
+               name = "All Countries",
+               text = paste("cases:",growth$confirmed,"<br>Deaths:",growth$death,"<br>Recovered:",growth$recovered,sep="")
+)
+
+
+fig <- fig %>% add_trace(
+               x=~growth.china.only$Date,
+               y= ~growth.china.only$active,
+               fill = 'tozeroy',
+               name = "China only",
+               hoverinfo = "text",
+               text = paste("China only<br>cases:",growth.china.only$confirmed,"<br>Deaths:",growth.china.only$death,"<br>Recovered:",growth.china.only$recovered,sep="")
+               )
+
+fig<- fig %>% config(displayModeBar = FALSE)
+fig <- layout(fig, xaxis = list(title = "Date"),
+                    yaxis = list(title = "Active cases"))
+
+fig
+  
+```
+
+
+
+The number of cases per day and the number of deaths per day.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.5,fig.height=4}
+
+
+fig <- plot_ly( hoverinfo = "text", text = paste("Date:",growth$Date,"<br>New cases:",growth$newconfirmed,sep=""),type = 'scatter', mode = 'lines')
+fig <- fig %>% add_trace( x = ~growth$Date, y = ~growth$newconfirmed, fill = 'tozeroy')
+fig <- fig %>% layout(
+    title = "cases (daily)",
+    yaxis = list(title = "cases"),
+   xaxis = list(title = "Date"))
+fig<- fig %>% config(displayModeBar = FALSE)
+fig <- fig %>% layout(showlegend = FALSE)
+fig
+
+```
+
+
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.5,fig.height=4 }
+
+
+fig <- plot_ly(hoverinfo = "text", text = paste("Date:",growth$Date,"<br>Deaths:",growth$newdeath,sep=""),type = 'scatter', mode = 'lines')
+fig <- fig %>% add_trace( x = ~growth$Date,y = ~growth$newdeath, fill = 'tozeroy')
+fig <- fig %>% layout(
+    title = "deaths (daily)",
+    xaxis = list(
+      title = "Date",
+      rangeselector = list(
+        buttons = list(
+           list(
+            count = 7,
+            label = "1 wk",
+            step = "day",
+            stepmode = "backward"),
+           list(count = 1,
+            label = "1 mo",
+            step = "month",
+            stepmode = "backward"),
+           list(step = "all"))),
+
+      rangeslider = list(type = "date",title = "Date")),
+
+   yaxis = list(title = "Deaths"))
+fig<- fig %>% config(displayModeBar = FALSE)
+fig <- fig %>% layout(showlegend = FALSE)
+fig
+```
+
+<br>
+
+***
+ 
+# Countries of (Personal) Interest
+
+ `r coi`.
+ 
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
+
+timeplots<-subset(df, (Country.Region %in% coi))
+
+fig<-ggplot(timeplots)+
+  geom_line(aes(Date,(number.confirmed-number.recovered-number.death)/population, colour=Country.Region))+
+  scale_colour_discrete("")+
+  scale_y_continuous("Active cases per capita")+
+  theme_minimal()
+
+fig<-ggplotly(fig)
+fig<- fig %>% config(displayModeBar = FALSE)
+fig
+
+```
+
+New cases per day
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
+
+timeplots<-subset(growth.by.country, (Country.Region %in% coi))
+
+fig<-ggplot(timeplots)+
+  geom_line(aes(Date,newconfirmed, colour=Country.Region))+
+  facet_wrap(~Country.Region, scales = "free")+
+  scale_colour_discrete("")+
+  scale_y_continuous("New confirmed cases")+
+  theme_minimal()
+
+fig<-ggplotly(fig)
+fig<- fig %>% config(displayModeBar = FALSE)
+fig
+```
+
+<br>
+
+
+***
+
+## Countries with High Incidence of nCoV19
+
+Time course of confirmed cases, deaths, recovery per country for the `r topcount` countries with the highest number of confirmed cases per capita and a population over `r prettyNum(minimum.pop, big.mark=",", scientific=F)`.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
+
+timeplots<-subset(df,(Country.Region %in% highload)&(number.confirmed>0))
+
+fig <- plot_ly(timeplots, x = ~Date, 
+               y = ~number.confirmed.per.capita, 
+               color = ~Country.Region,
+               hoverinfo = "text",
+               text = paste("Country:",timeplots$Country.Region,"<br>Cases:",timeplots$number.confirmed,"<br>Deaths:",timeplots$number.death,"<br>Recovered:",timeplots$number.recovered,sep="")
+               ) 
+fig <- fig %>% add_lines()
+fig<- fig %>% config(displayModeBar = FALSE)
+fig <- layout(fig, xaxis = list(title = "Date"),
+                    yaxis = list(title = "Confirmed cases per capita"))
+fig
+  
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
+
+
+  
+fig <- plot_ly(timeplots, x = ~Date, 
+               y = ~100*number.death/number.confirmed, 
+               color = ~Country.Region,
+               hoverinfo = "text",
+               text = paste("Country:",timeplots$Country.Region,"<br>cases:",timeplots$number.confirmed,"<br>Deaths:",timeplots$number.death,"<br>Recovered:",timeplots$number.recovered,sep="")
+               ) 
+fig <- fig %>% add_lines()
+fig<- fig %>% config(displayModeBar = FALSE)
+
+fig <- layout(fig, xaxis = list(title = "Date"),
+                    yaxis = list(type="log",title = "Deaths per case (%)"))
+fig
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
+
+
+fig <- plot_ly(timeplots, x = ~Date, 
+               y = ~100*number.recovered/number.confirmed,
+               color = ~Country.Region,
+               hoverinfo = "text",
+               text = paste("Country:",timeplots$Country.Region,"<br>cases:",timeplots$number.confirmed,"<br>Deaths:",timeplots$number.death,"<br>Recovered:",timeplots$number.recovered,sep="")
+               ) 
+fig <- fig %>% add_lines()
+fig<- fig %>% config(displayModeBar = FALSE)
+fig <- layout(fig, xaxis = list(title = "Date"),
+                    yaxis = list(title = "Recovery per case (%)"))
+fig
+  
+```
+
+***
+
+## By Continent
+
+Continents were assigned by merging data from data from [Kaggle](https://www.kaggle.com/). 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+
+gg<-ggplot(continental)+
+    geom_line(aes(Date,number.confirmed, colour=continent),size=1, show.legend = FALSE)+
+    scale_y_log10("cases")+
+    ggtitle("Confirmed cases (log10 scale)")+
+    scale_color_discrete()+
+    facet_grid(.~continent)+
+    theme_light()
+
+gg
+```
+
+The deaths-per-case may differ due to variations in detection efficiency. Poorer detection leads to a higher percentage.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+
+gg<-ggplot(continental)+
+    geom_line(aes(Date,100*number.death/number.confirmed, colour=continent ),size=1, show.legend = FALSE)+
+    scale_y_log10("Deaths per case (percent)")+
+    ggtitle("Deaths per Case (% on log10 scale)")+
+    scale_color_discrete()+
+    facet_grid(.~continent)+
+   theme_light()
+
+gg
+```
+
+<br>
+
+***
+
+## Death and Recovery
+
+The number or recoveries per case and death per case by country. For both of these metrics, the countries where cases occured earlier are likely to show higher numbers. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=7 }
+
+
+gg<- ggplot(df.today.above.cutoff) + 
+         geom_bar(aes(x = reorder(Country.Region, df.today.above.cutoff$total.recovered.per.case), y = 100*df.today.above.cutoff$total.recovered.per.case, colour=continent, fill=continent),stat = "identity")+
+         scale_y_continuous("Recovered per Case (%)")+
+         scale_x_discrete("")+
+         coord_flip()+  
+        theme_minimal()
+gg
+
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=7 }
+
+
+gg<-ggplot(df.today.above.cutoff) + 
+         geom_bar(aes(x = reorder(Country.Region, df.today.above.cutoff$total.death.per.case), y = 100*df.today.above.cutoff$total.death.per.case, colour=continent, fill=continent),stat = "identity")+
+         coord_flip()+
+         scale_y_continuous("Deaths per Case (%)")+
+         scale_x_discrete("")+
+         theme_minimal()
+
+gg
+```
+
+cases in countries that are yet to register a death.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+
+
+gg<-ggplot(subset(df.today.above.cutoff, total.death==0)) + 
+            geom_bar(aes(x = reorder(Country.Region, total.confirmed), y = total.confirmed, colour=continent, fill=continent),stat = "identity")+
+            coord_flip()+
+            scale_y_continuous("cases")+
+            scale_x_discrete("")+
+            theme_minimal()
+
+gg
+
+
+```
+<br>
+
+## Deaths per Case 
+
+Histogram of Death/Case for all countries where coronavirus deaths have occured and a population over `r prettyNum(minimum.pop, big.mark=",", scientific=F)`. The individual countries and death rate can be found using the hover-over on the last frame of [this plot](#propagation-of-cases-geographically).
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+
+
+gg<-ggplot(subset(df.today.above.cutoff, total.death>0)) + 
+            geom_histogram(aes(as.numeric(percent.mortality), fill=continent ),stat = "bin",bins = 10)+
+            scale_y_continuous("countries")+
+            scale_x_continuous("Cases leaing to death (%)")+
+            facet_grid(continent~.)+
+            theme_light()
+
+gg
+
+
+```
+<br>
+
+***
+
+<br>
+
+
+## Data Sources: 
+
+- nCov19: `r urlcases`
+- population: `r url`
+- geography: https://www.kaggle.com/statchaitya/country-to-continent
