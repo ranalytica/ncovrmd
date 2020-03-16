@@ -69,7 +69,7 @@ recovered.wide <- read.csv(paste(urlcases,"/csse_covid_19_data/csse_covid_19_tim
 
 confirmed.wide <- read.csv(paste(urlcases,"/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv", sep=""))
 
-# csv from high frequency worldometer scrape. 
+# csv from high frequency worldometer data. 
 
 worldometer<- read.csv("/Users/martin/Desktop/therepo/nCoV19/R.Script/output_file.csv")
 
@@ -794,3 +794,6 @@ gg
 - COVID19 Live: [Worldometers](https://www.worldometers.info/coronavirus/)
 - population: `r url`
 - geography: https://www.kaggle.com/statchaitya/country-to-continent
+
+## Source Code:
+- https://github.com/spendiff/ncovrmd
