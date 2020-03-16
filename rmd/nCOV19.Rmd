@@ -1,5 +1,5 @@
 ---
-pagetitle: "nCOV19"
+pagetitle: "COVID19"
 output:
   html_document:
     includes:
@@ -10,7 +10,14 @@ output:
   
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-
+# MIT Licence
+# Copyright 2020 Martin Spendiff
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #SETUP
 
 
@@ -43,7 +50,7 @@ return(people)
 
 topcount<-10
 confirmed.cutoff<-30
-coi<-c("China", "Italy", "United Kingdom","Switzerland", "Germany","Norway","South Africa","US","France")
+coi<-sort(c("China", "Italy", "United Kingdom","Switzerland", "Germany","Norway","South Africa","US","France","Japan", "New Zealand", "Spain"))
 minimum.pop=5e6
 urlcases<-"https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master"
 casespercapita.origin<-1e-6
@@ -53,6 +60,8 @@ casespercapita.cutoff<-5000000
 ###################################### End of Parameters
 
 # Get data
+
+# Time series data (Source reliability seems to be deteriorating. Consider changing if this is not rectified.)
  
 death.wide <- read.csv(paste(urlcases,"/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Deaths.csv",sep=""))
 
@@ -60,12 +69,17 @@ recovered.wide <- read.csv(paste(urlcases,"/csse_covid_19_data/csse_covid_19_tim
 
 confirmed.wide <- read.csv(paste(urlcases,"/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv", sep=""))
 
+# csv from high frequency worldometer scrape. 
+
+worldometer<- read.csv("/Users/martin/Desktop/therepo/nCoV19/R.Script/output_file.csv")
+
 # Get population data from the World Bank API
 url <- 'http://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL?date=2018&format=json&per_page=300'
 
 # read url and convert to data.frame
 population.doc <- fromJSON(txt=url)
 
+# Continent -> Country dataset downloaded from Kaggle
 country2continent <- read.csv(
   "https://spendiff.com/countryContinent.csv")
 
@@ -76,6 +90,10 @@ country2continent <- read.csv(
 
 # Turn date column titles into something I can work with Currently XM.DD.YY
 # Convert to DD.MM.YY
+
+total.cases.worldometer<-as.numeric(sub(",", "",as.character(worldometer[worldometer$Country.Other=="Total:",]$TotalCases)), fixed=T)
+total.deaths.worldometer<-as.numeric(sub(",", "",as.character(worldometer[worldometer$Country.Other=="Total:",]$TotalDeaths)), fixed=T)
+total.recovered.worldometer<-as.numeric(sub(",", "",as.character(worldometer[worldometer$Country.Other=="Total:",]$TotalRecovered)), fixed=T)
 
 names(death.wide)[4:length(names(death.wide))]<-str_replace(names(death.wide[4:length(names(death.wide))]), "X(\\d\\d?)+.(\\d\\d?).(\\d\\d)", "\\2.\\1.\\3")
 names(recovered.wide)[4:length(names(recovered.wide))]<-str_replace(names(recovered.wide[4:length(names(recovered.wide))]), "X(\\d\\d?)+.(\\d\\d?).(\\d\\d)", "\\2.\\1.\\3")
@@ -100,7 +118,7 @@ population.data<-merge(population.data,country2continent, by=c("code_3"))
 population<-as.data.frame(cbind("Country.Region"=population.data$country.x$value,"population"=population.data$value,"year"=population.data$date,"continent"=as.character(population.data$continent)),stringsAsFactors = FALSE)
 
 
-################################################## Repair errors
+################################################## Repair documented data errors on the github dataset
 taiwan<-c("Taiwan*","32780000","2018","Asia")
 population<-rbind (population, taiwan) 
 
@@ -141,6 +159,8 @@ confirmed.long$number.confirmed[confirmed.long$Country.Region==("Germany") & con
 death.long$number.death[death.long$Country.Region==("Iran") & death.long$Date==("12.3.20")][1] <-429
 confirmed.long$number.confirmed[confirmed.long$Country.Region==("Iran") & confirmed.long$Date==("12.3.20")][1] <-10075
 #recovered.long$number.recovered[recovered.long$Country.Region==("Italy") & recovered.long$Date==("12.3.20")]<-1258
+
+confirmed.long$number.confirmed[confirmed.long$Country.Region==("Japan") & confirmed.long$Date==("6.2.20")][1]<-23
 
 #############################
 
@@ -264,33 +284,48 @@ continental<-df %>%
                        ) 
 
 
+### WORLDOMETHER TABLE 
 
-df.table<-df.today
 
-df.table$active.cases<-df.table$total.confirmed-df.table$total.death-df.table$total.recovered
+df.table<-worldometer %>% 
+          filter(Country.Other!="Total:")
+df.table$Country.Other<-str_trim(as.character(df.table$Country.Other))
 
-df.table<-df.table[,c(1,12,5,4,2,3,10,6,7,8,9,11)]
-df.table <-df.table[ -c(8:12) ]
+df.table$Country.Other[df.table$Country.Other=="UK"]<-"United Kingdom"
 
-df.table$population<-prettyNum(df.table$population, big.mark=",")
-df.table$total.confirmed<-prettyNum(df.table$total.confirmed, big.mark=",")
-df.table$total.death<-prettyNum(df.table$total.death, big.mark=",")
-df.table$total.recovered<-prettyNum(df.table$total.recovered, big.mark=",")
-df.table$percent.mortality<-percent(as.numeric(df.table$percent.mortality)/100, accuracy=0.1, suffix="%")
-df.table$population<-prettyNum(df.table$population, big.mark=",")
-df.table$active.cases<-prettyNum(df.table$active.cases, big.mark=",")
+df.table$percent.mortality<-NA
+df.table<-df.table[,c("Country.Other","ActiveCases","TotalCases","TotalRecovered","TotalDeaths","percent.mortality","Tot.Cases.1M.pop")]
 
+cols = c(2:7);    
+df.table[,cols] = apply(df.table[,cols], 2, function(x) as.numeric(sub(",", "",as.character(x)),fixed=T));
+
+df.table$TotalDeaths[is.na(df.table$TotalDeaths)]<-0
+df.table$TotalCases[is.na(df.table$TotalCases)]<-0
+df.table$TotalRecovered[is.na(df.table$TotalRecovered)]<-0
+df.table$percent.mortality<-df.table$TotalDeaths/df.table$TotalCases
+
+df.table$Tot.Cases.1M.pop<-round(1000*df.table$TotalCases/df.table$Tot.Cases.1M.pop)*1000
+
+
+df.table$Tot.Cases.1M.pop<-prettyNum(df.table$Tot.Cases.1M.pop, big.mark=",", scientific=F)
+df.table$TotalCases<-prettyNum(df.table$TotalCases, big.mark=",")
+df.table$TotalDeaths<-prettyNum(df.table$TotalDeaths, big.mark=",")
+df.table$TotalRecovered<-prettyNum(df.table$TotalRecovered, big.mark=",")
+df.table$percent.mortality<-percent(as.numeric(df.table$percent.mortality), accuracy=0.1, suffix="%")
+df.table$Tot.Cases.1M.pop<-prettyNum(df.table$Tot.Cases.1M.pop, big.mark=",")
+df.table$ActiveCases<-prettyNum(df.table$ActiveCases, big.mark=",")
+
+names(df.table)[1]<-"<i class=\"fas fa-globe-americas \"></i>"
+names(df.table)[2]<-"<i class=\"fas fa-procedures  \" title=\"Currently active COVID19 cases\"> </i> Active "
+names(df.table)[3]<-"<i class=\"fas fa-procedures \" title=\"Total confirmed COVID19 cases\" > </i> Total"
+names(df.table)[4]<-"Recovered"
+names(df.table)[6]<-"<i class=\"fas fa-book-dead \" title=\"Total COVID19 fatalities\"> </i> Deaths"
+names(df.table)[6]<-"<i class=\"fas fa-book-dead \" title=\"Percent of identified COVID19 cases that prove fatal\">&nbsp</i><i class=\"fas fa-percent\"></i>"
+names(df.table)[7]<-"<i class=\"fas fa-male\" title=\"people in country\">  </i> Population"
 
 df.today.above.cutoff$total.recovered.per.case<-df.today.above.cutoff$total.recovered/df.today.above.cutoff$total.confirmed
 df.today.above.cutoff$total.death.per.case<-df.today.above.cutoff$total.death/df.today.above.cutoff$total.confirmed
 
-names(df.table)[1]<-"<i class=\"fas fa-globe-americas \"></i>"
-names(df.table)[5]<-"<i class=\"fas fa-book-dead \" title=\"Total nCoV19 fatalities\"> </i> Deaths"
-names(df.table)[6]<-"<i class=\"fas fa-book-dead \" title=\"Percent of identified nCoV19 cases that prove fatal\">&nbsp</i><i class=\"fas fa-percent\"></i>"
-names(df.table)[4]<-"Recovered"
-names(df.table)[3]<-"<i class=\"fas fa-procedures \" title=\"Total confirmed nCoV19 cases\" > </i> Total"
-names(df.table)[2]<-"<i class=\"fas fa-procedures  \" title=\"Currently active nCoV19 cases\"> </i> Active "
-names(df.table)[7]<-"<i class=\"fas fa-male\" title=\"Population of country\">  </i> Population"
 
 # Get a list of highload countrie
 
@@ -315,20 +350,20 @@ writeLines('<!-- Global site tag (gtag.js) - Google Analytics -->\n <script asyn
 close(CON)
 ```
 <br>
-<div style="text-align: right"> <a href="https://spendiff.com/"><i class="fas fa-home" color="lightgrey"></i>
+<div style="text-align: right"> <a href="nCOV19.html"><i class="fas fa-sync-alt" title="Refresh"></i></a> <a href="https://spendiff.com/"><i class="fas fa-home" color="lightgrey"></i>
 </a> </div>
 ***
 
-# Global nCoV19 Data 
+# Global COVID19 Data 
 Last Updated: `r format(Sys.time(), format='%H:%M, %B %d, %Y (%Z)')` 
 
 ***
 
-# Cases: <span style="color:steelblue">`r prettyNum(growth$confirmed[growth$Date==maxdate], big.mark=",", scientific=F)`</span>
+# Cases: <span style="color:steelblue">`r prettyNum(total.cases.worldometer, big.mark=",", scientific=F)`</span>
 
-# Deaths: <span style="color:red">`r prettyNum(growth$death[growth$Date==maxdate], big.mark=",", scientific=F)`</span>
+# Deaths: <span style="color:red">`r prettyNum(total.deaths.worldometer, big.mark=",", scientific=F)`</span>
 
-# Recovered: <span style="color:darkgreen"> `r prettyNum(growth$recovered[growth$Date==maxdate], big.mark=",", scientific=F)`</span>
+# Recovered: <span style="color:darkgreen"> `r prettyNum(total.recovered.worldometer, big.mark=",", scientific=F)`</span>
 
 ## <span style="color:steelblue">`r format(100*growth$death[growth$Date==maxdate]/growth$confirmed[growth$Date==maxdate],digits=2)`%</span> of all (confirmed) cases end in death [^1]
 </center>
@@ -342,7 +377,7 @@ New Yesterday - Cases: <span style="color:steelblue">`r prettyNum(growth$newconf
 
 ***
 
-[^1]: For multiple reasons, the number of deaths divided by the number of cases is not the mortality rate of nCoV19. It is the percentage of individuals identified to have nCoV19 who die (or are dead). 
+[^1]: For multiple reasons, the number of deaths divided by the number of cases is not the mortality rate of COVID19. It is the percentage of individuals identified to have COVID19 who die (or are dead). 
 
 
 # Hot Spots
@@ -357,7 +392,7 @@ Data for all countries with active and historic cases are also accessible using 
 
 datatable(df.table ,
           options = list( order = list(list(1,'desc')),                                  
-                          columnDefs = list(list(className = 'dt-right', targets = 2:6) 
+                          columnDefs = list(list(className = 'dt-right', targets = 1:6) 
                                             )
                         ),
           rownames = FALSE, 
@@ -366,13 +401,17 @@ datatable(df.table ,
 ```
 <br>
 
-# Propagation of Cases Geographically
+# Time Series Data
+
+The following plots use a slightly slower time series dataset that may lag behind the live headline figures which are taken from a high-frequency data source.
+
+## Propagation of Cases Geographically
  
 Log-log Scatterplot (Räppli plot) of death per capita (aka per person) vs confirmed cases per capita for all countries currently with more than `r confirmed.cutoff` confirmed cases on `r format(Sys.Date(), format='%B %d, %Y')`. Colour and shape of the points indicate the continent. Size of the points gives a measure of the country population. Dotted lines indicate the boundaries for the percentages of cases that prove fatal (0.1%,1%,10% and 100%). 
 
 
               
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=9,fig.height=7 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=7 }
 days.data<-max(df$days.of.data)
 # 
 # #Make sure that all countries in the last frame are also in the first frame
@@ -437,12 +476,14 @@ fig
 
 ***
 
-# Comparison of Spread
+## Comparison of Spread
 
-Take all of the countries with a population over `r prettyNum(casespercapita.cutoff, big.mark=",", scientific=F)` and look at cases relative to the first day where **confirmed** cases appear - 'onset' day. We examine how easily it continues to spread. Variations in detection efficiency mean that comparison of performance comes with caveats.
+Take all of the countries with a population over `r prettyNum(casespercapita.cutoff, big.mark=",", scientific=F)` and look at cases relative to the first day where **confirmed** cases appear - 'onset' day. We examine how easily it continues to spread. Variations in detection efficiency mean that comparison of performance comes with caveats. 
+
+To make plots more legible for specific continents, click  <i class="fas fa-mouse-pointer" style="color:steelblue"> </i> on individual continents in the plot legend to toggle their selection.
 
 
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=9.8,fig.height=4 }
 
 gg<-ggplot(onsetday)+
   geom_line(aes(day.since.onset,
@@ -465,7 +506,7 @@ fig
 
 Disregarding the China data and looking at the increase in confirmed cases in all other countries.
 
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=9.8,fig.height=4 }
 
 gg<-ggplot(subset(onsetday, Country.Region!="China"))+
   geom_line(aes(day.since.onset,
@@ -486,9 +527,9 @@ fig
 
 ```
 
-Disregarding the China data and looking at the nCoV19 deaths in all other countries.
+Disregarding the China data and looking at the COVID19 deaths in all other countries.
 
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=9.8,fig.height=4 }
 
 gg<-ggplot(subset(onsetday, Country.Region!="China"))+
   geom_line(aes(day.since.onset,
@@ -512,11 +553,11 @@ fig
 
 <br>
 
-## Global Cases of nCoV19
+## Global Cases of COVID19
 
 If we define Active cases as *Confirmed cases - Confirmed Recovery - Confirmed Death*, we get the plot below.
 
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.5,fig.height=4 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
 
 growth.china.only<-growth.by.country %>% filter(Country.Region=="China")
 
@@ -530,7 +571,7 @@ fig <- fig %>% add_trace(x = ~growth$Date,
                hoverinfo = "text",
                fill = 'tozeroy',
                name = "All Countries",
-               text = paste("cases:",growth$confirmed,"<br>Deaths:",growth$death,"<br>Recovered:",growth$recovered,sep="")
+               text = paste("Global<br>cases:",growth$confirmed,"<br>Deaths:",growth$death,"<br>Recovered:",growth$recovered,sep="")
 )
 
 
@@ -553,22 +594,7 @@ fig
 
 
 
-The number of cases per day and the number of deaths per day.
-
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.5,fig.height=4}
-
-
-fig <- plot_ly( hoverinfo = "text", text = paste("Date:",growth$Date,"<br>New cases:",growth$newconfirmed,sep=""),type = 'scatter', mode = 'lines')
-fig <- fig %>% add_trace( x = ~growth$Date, y = ~growth$newconfirmed, fill = 'tozeroy')
-fig <- fig %>% layout(
-    title = "cases (daily)",
-    yaxis = list(title = "cases"),
-   xaxis = list(title = "Date"))
-fig<- fig %>% config(displayModeBar = FALSE)
-fig <- fig %>% layout(showlegend = FALSE)
-fig
-
-```
+The number of deaths per day
 
 
 <br>
@@ -609,9 +635,11 @@ fig
  
 # Countries of (Personal) Interest
 
- `r coi`.
+ `r coi`. 
  
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
+ To make plots more legible for specific countries, click  <i class="fas fa-mouse-pointer" style="color:steelblue"> </i> on individual countries in the plot legend to toggle their selection.
+ 
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=6 }
 
 timeplots<-subset(df, (Country.Region %in% coi))
 
@@ -630,19 +658,21 @@ fig
 New cases per day
 
 
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.5,fig.height=4 }
 
 timeplots<-subset(growth.by.country, (Country.Region %in% coi))
 
 fig<-ggplot(timeplots)+
-  geom_line(aes(Date,newconfirmed, colour=Country.Region))+
-  facet_wrap(~Country.Region, scales = "free")+
+  geom_area(aes(Date,newconfirmed, fill=Country.Region), alpha=.5)+
+  facet_wrap(~Country.Region, scales = "free_y", ncol=3)+
   scale_colour_discrete("")+
+  scale_fill_discrete("")+
   scale_y_continuous("New confirmed cases")+
   theme_minimal()
 
 fig<-ggplotly(fig)
 fig<- fig %>% config(displayModeBar = FALSE)
+fig <- fig %>% layout(showlegend = FALSE)
 fig
 ```
 
@@ -651,96 +681,34 @@ fig
 
 ***
 
-## Countries with High Incidence of nCoV19
-
-Time course of confirmed cases, deaths, recovery per country for the `r topcount` countries with the highest number of confirmed cases per capita and a population over `r prettyNum(minimum.pop, big.mark=",", scientific=F)`.
-
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
-
-timeplots<-subset(df,(Country.Region %in% highload)&(number.confirmed>0))
-
-fig <- plot_ly(timeplots, x = ~Date, 
-               y = ~number.confirmed.per.capita, 
-               color = ~Country.Region,
-               hoverinfo = "text",
-               text = paste("Country:",timeplots$Country.Region,"<br>Cases:",timeplots$number.confirmed,"<br>Deaths:",timeplots$number.death,"<br>Recovered:",timeplots$number.recovered,sep="")
-               ) 
-fig <- fig %>% add_lines()
-fig<- fig %>% config(displayModeBar = FALSE)
-fig <- layout(fig, xaxis = list(title = "Date"),
-                    yaxis = list(title = "Confirmed cases per capita"))
-fig
-  
-```
-
-
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
-
-
-  
-fig <- plot_ly(timeplots, x = ~Date, 
-               y = ~100*number.death/number.confirmed, 
-               color = ~Country.Region,
-               hoverinfo = "text",
-               text = paste("Country:",timeplots$Country.Region,"<br>cases:",timeplots$number.confirmed,"<br>Deaths:",timeplots$number.death,"<br>Recovered:",timeplots$number.recovered,sep="")
-               ) 
-fig <- fig %>% add_lines()
-fig<- fig %>% config(displayModeBar = FALSE)
-
-fig <- layout(fig, xaxis = list(title = "Date"),
-                    yaxis = list(type="log",title = "Deaths per case (%)"))
-fig
-```
-
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10,fig.height=4 }
-
-
-fig <- plot_ly(timeplots, x = ~Date, 
-               y = ~100*number.recovered/number.confirmed,
-               color = ~Country.Region,
-               hoverinfo = "text",
-               text = paste("Country:",timeplots$Country.Region,"<br>cases:",timeplots$number.confirmed,"<br>Deaths:",timeplots$number.death,"<br>Recovered:",timeplots$number.recovered,sep="")
-               ) 
-fig <- fig %>% add_lines()
-fig<- fig %>% config(displayModeBar = FALSE)
-fig <- layout(fig, xaxis = list(title = "Date"),
-                    yaxis = list(title = "Recovery per case (%)"))
-fig
-  
-```
-
-***
-
 ## By Continent
 
-Continents were assigned by merging data from data from [Kaggle](https://www.kaggle.com/). 
-
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.5,fig.height=4 }
 
 gg<-ggplot(continental)+
-    geom_line(aes(Date,number.confirmed, colour=continent),size=1, show.legend = FALSE)+
-    scale_y_log10("cases")+
-    ggtitle("Confirmed cases (log10 scale)")+
-    scale_color_discrete()+
+    geom_area(aes(Date,number.confirmed, fill=continent),size=1, show.legend = FALSE, alpha=.7)+
+    scale_y_continuous("cases")+
+    ggtitle("Confirmed cases")+
+    scale_fill_discrete()+
     facet_grid(.~continent)+
     theme_light()
 
-gg
+gg + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 The deaths-per-case may differ due to variations in detection efficiency. Poorer detection leads to a higher percentage.
 
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.5,fig.height=4 }
 
 gg<-ggplot(continental)+
-    geom_line(aes(Date,100*number.death/number.confirmed, colour=continent ),size=1, show.legend = FALSE)+
-    scale_y_log10("Deaths per case (percent)")+
-    ggtitle("Deaths per Case (% on log10 scale)")+
+    geom_line(aes(Date,100*number.death/number.confirmed, colour=continent ),size=1, show.legend = FALSE, alpha=.7)+
+    scale_y_continuous("Deaths per case (percent)")+
+    ggtitle("Deaths per Case (%)")+
     scale_color_discrete()+
     facet_grid(.~continent)+
    theme_light()
 
-gg
+gg + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 <br>
@@ -751,7 +719,7 @@ gg
 
 The number or recoveries per case and death per case by country. For both of these metrics, the countries where cases occured earlier are likely to show higher numbers. 
 
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=7 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.3,fig.height=8 }
 
 
 gg<- ggplot(df.today.above.cutoff) + 
@@ -765,7 +733,7 @@ gg
 
 ```
 
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=7 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.3,fig.height=8 }
 
 
 gg<-ggplot(df.today.above.cutoff) + 
@@ -780,7 +748,7 @@ gg
 
 cases in countries that are yet to register a death.
 
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.3,fig.height=6 }
 
 
 gg<-ggplot(subset(df.today.above.cutoff, total.death==0)) + 
@@ -800,11 +768,11 @@ gg
 
 Histogram of Death/Case for all countries where coronavirus deaths have occured and a population over `r prettyNum(minimum.pop, big.mark=",", scientific=F)`. The individual countries and death rate can be found using the hover-over on the last frame of [this plot](#propagation-of-cases-geographically).
 
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8,fig.height=4 }
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.3,fig.height=6 }
 
 
 gg<-ggplot(subset(df.today.above.cutoff, total.death>0)) + 
-            geom_histogram(aes(as.numeric(percent.mortality), fill=continent ),stat = "bin",bins = 10)+
+            geom_histogram(aes(as.numeric(percent.mortality), fill=continent ),stat = "bin",bins = 10, show.legend = FALSE)+
             scale_y_continuous("countries")+
             scale_x_continuous("Cases leaing to death (%)")+
             facet_grid(continent~.)+
@@ -822,7 +790,7 @@ gg
 
 
 ## Data Sources: 
-
-- nCov19: `r urlcases`
+- COVID19 Historical: `r urlcases`
+- COVID19 Live: [Worldometers](https://www.worldometers.info/coronavirus/)
 - population: `r url`
 - geography: https://www.kaggle.com/statchaitya/country-to-continent
